@@ -1,22 +1,42 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
+import sqlite3
 
-# --- File persistence ---
-DATA_FILE = "project_expenses.csv"
+DB_FILE = "expenses.db"
 
-# Load data if file exists, else create empty DataFrame
-if "data" not in st.session_state:
-    if os.path.exists(DATA_FILE):
-        st.session_state.data = pd.read_csv(DATA_FILE)
-    else:
-        st.session_state.data = pd.DataFrame(
-            columns=["Date", "Vendor Name", "Expense Category", "Expense Amount (₹)",
-                     "Client Payment Amount (₹)", "Payment Status", "Notes"]
-        )
+# --- Database Setup ---
+conn = sqlite3.connect(DB_FILE, check_same_thread=False)  # allows multi-user
+cursor = conn.cursor()
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    Date TEXT,
+    Vendor TEXT,
+    Category TEXT,
+    Expense REAL,
+    Payment REAL,
+    Status TEXT,
+    Notes TEXT
+)
+""")
+conn.commit()
+
+# --- Helper Functions ---
+def add_entry(date, vendor, category, expense, payment, status, notes):
+    cursor.execute(
+        "INSERT INTO expenses (Date, Vendor, Category, Expense, Payment, Status, Notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (str(date), vendor, category, expense, payment, status, notes),
+    )
+    conn.commit()
+
+def load_data():
+    return pd.read_sql("SELECT * FROM expenses", conn)
+
+# --- Streamlit UI ---
 st.title("🏗️ Interior Project Expense Tracker")
+st.subheader("📊 Track your expenses, client payments & profit/loss (multi-user ready)")
 
 # --- Data Entry Form ---
 with st.form("entry_form"):
@@ -33,37 +53,25 @@ with st.form("entry_form"):
 
     submitted = st.form_submit_button("Add Entry")
     if submitted:
-        new_row = {
-            "Date": str(date),
-            "Vendor Name": vendor,
-            "Expense Category": category,
-            "Expense Amount (₹)": expense,
-            "Client Payment Amount (₹)": client_payment,
-            "Payment Status": payment_status,
-            "Notes": notes,
-        }
-        st.session_state.data = pd.concat(
-            [st.session_state.data, pd.DataFrame([new_row])], ignore_index=True
-        )
+        add_entry(date, vendor, category, expense, client_payment, payment_status, notes)
+        st.success("✅ Entry added successfully!")
 
-        # ✅ Save to file after every new entry
-        st.session_state.data.to_csv(DATA_FILE, index=False)
+# --- Load Data from DB ---
+df = load_data()
 
-        st.success("Entry added successfully and saved!")
-
-# --- Display Data ---
 st.subheader("📋 Project Records")
-st.dataframe(st.session_state.data, use_container_width=True)
+st.dataframe(df, use_container_width=True)
 
 # --- Summary ---
-if not st.session_state.data.empty:
-    total_expenses = st.session_state.data["Expense Amount (₹)"].sum()
-    total_payments = st.session_state.data["Client Payment Amount (₹)"].sum()
+if not df.empty:
+    total_expenses = df["Expense"].sum()
+    total_payments = df["Payment"].sum()
     profit_loss = total_payments - total_expenses
 
-    st.metric("Total Expenses (₹)", f"{total_expenses:,.0f}")
-    st.metric("Total Client Payments (₹)", f"{total_payments:,.0f}")
-    st.metric("Net Profit/Loss (₹)", f"{profit_loss:,.0f}")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Expenses (₹)", f"{total_expenses:,.0f}")
+    col2.metric("Total Client Payments (₹)", f"{total_payments:,.0f}")
+    col3.metric("Net Profit/Loss (₹)", f"{profit_loss:,.0f}")
 
     # --- Charts ---
     st.subheader("📊 Visual Analysis")
@@ -75,9 +83,9 @@ if not st.session_state.data.empty:
     st.pyplot(fig)
 
     # Pie chart: Expense distribution
-    if st.session_state.data["Expense Amount (₹)"].sum() > 0:
+    if df["Expense"].sum() > 0:
         fig2, ax2 = plt.subplots()
-        exp_by_cat = st.session_state.data.groupby("Expense Category")["Expense Amount (₹)"].sum()
+        exp_by_cat = df.groupby("Category")["Expense"].sum()
         ax2.pie(exp_by_cat, labels=exp_by_cat.index, autopct="%1.1f%%")
         ax2.set_title("Expense Distribution")
         st.pyplot(fig2)
@@ -85,7 +93,7 @@ if not st.session_state.data.empty:
 # --- Export Option ---
 st.download_button(
     label="💾 Download Data as Excel",
-    data=st.session_state.data.to_csv(index=False).encode("utf-8"),
+    data=df.to_csv(index=False).encode("utf-8"),
     file_name="project_expenses.csv",
     mime="text/csv",
 )
