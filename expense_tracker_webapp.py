@@ -1,13 +1,20 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
 
-# --- Initialize session state ---
+# --- File persistence ---
+DATA_FILE = "project_expenses.csv"
+
+# Load data if file exists, else create empty DataFrame
 if "data" not in st.session_state:
-    st.session_state.data = pd.DataFrame(
-        columns=["Date", "Vendor Name", "Expense Category", "Expense Amount (₹)",
-                 "Client Payment Amount (₹)", "Payment Status", "Notes"]
-    )
+    if os.path.exists(DATA_FILE):
+        st.session_state.data = pd.read_csv(DATA_FILE)
+    else:
+        st.session_state.data = pd.DataFrame(
+            columns=["Date", "Vendor Name", "Expense Category", "Expense Amount (₹)",
+                     "Client Payment Amount (₹)", "Payment Status", "Notes"]
+        )
 
 st.title("🏗️ Interior Project Expense Tracker")
 
@@ -35,8 +42,14 @@ with st.form("entry_form"):
             "Payment Status": payment_status,
             "Notes": notes,
         }
-        st.session_state.data = pd.concat([st.session_state.data, pd.DataFrame([new_row])], ignore_index=True)
-        st.success("Entry added successfully!")
+        st.session_state.data = pd.concat(
+            [st.session_state.data, pd.DataFrame([new_row])], ignore_index=True
+        )
+
+        # ✅ Save to file after every new entry
+        st.session_state.data.to_csv(DATA_FILE, index=False)
+
+        st.success("Entry added successfully and saved!")
 
 # --- Display Data ---
 st.subheader("📋 Project Records")
@@ -54,7 +67,7 @@ if not st.session_state.data.empty:
 
     # --- Charts ---
     st.subheader("📊 Visual Analysis")
-    
+
     # Bar chart: Payments vs Expenses
     fig, ax = plt.subplots()
     ax.bar(["Expenses", "Payments"], [total_expenses, total_payments], color=["red", "green"])
